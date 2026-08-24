@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="ar">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+  <title>الجهاز المستهدف</title>
+  <link rel="manifest" href="manifest.json">
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
+  <style>
+    * { margin:0; padding:0; box-sizing:border-box; font-family: system-ui; }
+    body { background: #0b0e14; color: #fff; display: flex; justify-content: center; align-items: center; min-height: 100vh; padding: 16px; }
+    .container { max-width: 500px; width: 100%; background: #1a1f2b; padding: 24px; border-radius: 24px; box-shadow: 0 8px 32px rgba(0,0,0,0.6); }
+    h1 { font-size: 22px; margin-bottom: 8px; color: #00e5ff; }
+    .sub { color: #9aa0b0; font-size: 14px; margin-bottom: 20px; }
+    .card { background: #262d3d; padding: 16px; border-radius: 16px; margin-bottom: 16px; }
+    .label { font-size: 14px; color: #b0c4de; margin-bottom: 6px; }
+    .btn { background: #00e5ff; color: #0b0e14; border: none; padding: 12px; border-radius: 12px; font-weight: bold; width: 100%; margin-top: 8px; cursor: pointer; transition: 0.2s; }
+    .btn:hover { background: #66f0ff; }
+    .btn-danger { background: #ff4d6d; color: #fff; }
+    .btn-danger:hover { background: #ff708a; }
+    .row { display: flex; gap: 8px; }
+    .row .btn { flex:1; }
+    #logs { background: #0b0e14; padding: 10px; border-radius: 12px; max-height: 150px; overflow-y: auto; font-size: 13px; color: #a0b8d0; margin-top: 12px; }
+    #logs div { padding: 4px 0; border-bottom: 1px solid #1f2737; }
+    .status { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 8px; }
+    .online { background: #00e676; }
+    .offline { background: #ff5252; }
+    #photoPreview { max-width: 100%; border-radius: 12px; margin-top: 8px; display: none; }
+  </style>
+</head>
+<body>
+<div class="container" id="app">
+  <h1>🎮 الجهاز المستهدف</h1>
+  <div class="sub">معرف الجهاز: <span id="deviceIdDisplay">...</span> <span class="status online" id="statusDot"></span></div>
+
+  <div class="card">
+    <div class="label">📸 الكاميرا</div>
+    <button class="btn" id="btnPhoto">التقاط صورة</button>
+    <img id="photoPreview" />
+  </div>
+
+  <div class="card">
+    <div class="label">📍 الموقع</div>
+    <button class="btn" id="btnLocation">الحصول على الموقع</button>
+    <div id="locationResult" style="margin-top:8px; font-size:14px; color:#b0c4de;"></div>
+  </div>
+
+  <div class="card">
+    <div class="label">🔔 إشعار</div>
+    <button class="btn" id="btnNotify">إرسال إشعار تجريبي</button>
+  </div>
+
+  <div class="row">
+    <button class="btn btn-danger" id="btnUnlink">فك الربط</button>
+    <button class="btn" id="btnRefresh">تحديث الحالة</button>
+  </div>
+
+  <div id="logs">
+    <div>📡 جاهز للاستماع...</div>
+  </div>
+</div>
+
+<script>
+  // ======== إعدادات Firebase (تم استبدالها بالبيانات الصحيحة) ========
+  const firebaseConfig = {
+    apiKey: "AIzaSyCNEYRJqQSQmOW83G9iaW1m4HBgSt8ANSM",
+    authDomain: "remotecontrolpro-55cc6.firebaseapp.com",
+    databaseURL: "https://remotecontrolpro-55cc6-default-rtdb.europe-west1.firebasedatabase.app",
+    projectId: "remotecontrolpro-55cc6",
+    storageBucket: "remotecontrolpro-55cc6.firebasestorage.app",
+    messagingSenderId: "363977407926",
+    appId: "1:363977407926:web:fd55ff9c3741c7a7a45517"
+  };
+
+  firebase.initializeApp(firebaseConfig);
+  const db = firebase.database();
+
+  // ======== تعريف الجهاز ========
+  const deviceId = localStorage.getItem('deviceId') || ('dev_' + Math.random().toString(36).substr(2, 9));
+  localStorage.setItem('deviceId', deviceId);
+  document.getElementById('deviceIdDisplay').textContent = deviceId;
+
+  // ======== حالة الجهاز ========
+  function updateStatus(online) {
+    const dot = document.getElementById('statusDot');
+    dot.className = 'status ' + (online ? 'online' : 'offline');
+  }
+  updateStatus(true);
+  db.ref('devices/' + deviceId).set({ name: 'جهازي', lastSeen: Date.now(), online: true });
+  db.ref('devices/' + deviceId + '/online').onDisconnect().set(false);
+
+  // ======== دالة سجل ========
+  function addLog(msg) {
+    const logs = document.getElementById('logs');
+    const div = document.createElement('div');
+    div.textContent = '🕒 ' + new Date().toLocaleTimeString() + ' - ' + msg;
+    logs.prepend(div);
+    if (logs.children.length > 20) logs.removeChild(logs.lastChild);
+  }
+
+  // ======== صلاحيات ========
+  document.getElementById('btnRequestPermissions')?.addEventListener('click', async () => {
+    await navigator.mediaDevices.getUserMedia({ video: true });
+    await new Promise((resolve, reject) => navigator.geolocation.getCurrentPosition(resolve, reject));
+    addLog('✅ الصلاحيات ممنوحة');
+  });
+
+  // ======== كاميرا ========
+  document.getElementById('btnPhoto').addEventListener('click', async () => {
+    addLog('📸 جارٍ التقاط الصورة...');
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+      const track = stream.getVideoTracks()[0];
+      const imageCapture = new ImageCapture(track);
+      const blob = await imageCapture.takePhoto();
+      track.stop();
+      const url = URL.createObjectURL(blob);
+      const img = document.getElementById('photoPreview');
+      img.src = url;
+      img.style.display = 'block';
+      addLog('✅ تم عرض الصورة محلياً');
+    } catch(e) {
+      addLog('❌ فشل: ' + e.message);
+    }
+  });
+
+  // ======== موقع ========
+  document.getElementById('btnLocation').addEventListener('click', () => {
+    addLog('📍 جارٍ الحصول على الموقع...');
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const lat = pos.coords.latitude, lng = pos.coords.longitude;
+        document.getElementById('locationResult').textContent = `🌐 ${lat}, ${lng}`;
+        db.ref('locations/' + deviceId).set({ lat, lng, time: Date.now() });
+        addLog('✅ تم تحديث الموقع');
+      },
+      (err) => addLog('❌ خطأ: ' + err.message)
+    );
+  });
+
+  // ======== إشعار ========
+  document.getElementById('btnNotify').addEventListener('click', () => {
+    if ('Notification' in window && Notification.permission === 'granted') {
+      new Notification('📨 أمر', { body: 'إشعار تجريبي' });
+      addLog('🔔 تم إرسال إشعار');
+    } else if ('Notification' in window) {
+      Notification.requestPermission().then(p => {
+        if (p === 'granted') new Notification('📨 أمر', { body: 'إشعار تجريبي' });
+        addLog('🔔 تم طلب الإذن للإشعارات');
+      });
+    } else addLog('⚠️ الإشعارات غير مدعومة');
+  });
+
+  // ======== فك الربط ========
+  document.getElementById('btnUnlink').addEventListener('click', () => {
+    if (confirm('فك ربط الجهاز؟')) {
+      db.ref('devices/' + deviceId).remove();
+      localStorage.removeItem('deviceId');
+      addLog('🔗 تم فك الربط، إعادة تحميل...');
+      setTimeout(() => location.reload(), 1000);
+    }
+  });
+
+  // ======== تحديث الحالة ========
+  document.getElementById('btnRefresh').addEventListener('click', () => {
+    db.ref('devices/' + deviceId).update({ lastSeen: Date.now() });
+    addLog('🔄 تم تحديث الحالة');
+  });
+
+  // ======== الاستماع للأوامر ========
+  db.ref('commands/' + deviceId).on('child_added', (snap) => {
+    const cmd = snap.val();
+    addLog('📩 أمر وارد: ' + cmd.type);
+    if (cmd.type === 'photo') document.getElementById('btnPhoto').click();
+    else if (cmd.type === 'location') document.getElementById('btnLocation').click();
+    else if (cmd.type === 'notify') document.getElementById('btnNotify').click();
+    snap.ref.remove();
+  });
+
+  // ======== طلب إذن الإشعارات ========
+  if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission();
+
+  addLog('🚀 النظام جاهز');
+</script>
+</body>
+</html>
